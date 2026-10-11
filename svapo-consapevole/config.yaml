@@ -1,5 +1,5 @@
 name: Svapo Consapevole
-version: "0.2.0"
+version: "0.2.1"
 slug: svapo_consapevole
 description: Sessioni di svapo a ritmo di sigaretta vera, con notifiche sul telefono
 arch:
@@ -25,7 +25,7 @@ options:
   notify_ready: true
   interruption_level: time-sensitive
 schema:
-  direct_access: bool
+  direct_access: bool?
   notify_services:
     - str
   notify_start: bool
