@@ -173,6 +173,9 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
 }
 .switch:checked { background: var(--ink); }
 .switch:checked::after { transform: translateX(18px); background: var(--bg); }
+.times { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 8px; }
+.times input { font: 500 14px var(--font-mono); color: var(--ink); background: transparent; border: 1.5px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.times input:disabled { opacity: .45; }
 .mini { margin-top: 8px; padding: 8px 12px; border: 1.5px solid var(--line); background: transparent; border-radius: 8px; font: 500 13px var(--font-body); cursor: pointer; }
 .row > .mini { margin-top: 0; }
 .mini.danger { border-color: var(--ember); }
@@ -258,7 +261,7 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
   'use strict';
 
   var KEY = 'svapo-consapevole-v1';
-  var DEF = { sessionMin: 6, puffSec: 35, cooldownMin: 45, goal: 8, gradual: false, gradualStep: 5, gradualStart: null, vibrate: true, sound: true };
+  var DEF = { sessionMin: 6, puffSec: 35, cooldownMin: 45, goal: 8, gradual: false, gradualStep: 5, gradualStart: null, vibrate: true, sound: true, quiet: true, quietFrom: 1380, quietTo: 480 };
   var store = { settings: Object.assign({}, DEF), log: [], run: null };
   var $ = function (id) { return document.getElementById(id); };
   var remote = false, skew = 0, lastSync = 0;
@@ -535,7 +538,7 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
       el.clock.textContent = fmt(left);
       el.cue.textContent = 'Aspetta';
       el.cue.classList.remove('on');
-      el.sub.textContent = 'puoi riprendere alle ' + hhmm(r.until);
+      el.sub.textContent = (r.morning ? 'riposo notturno \u00b7 ' : '') + 'puoi riprendere alle ' + hhmm(r.until);
       ensurePips(0);
       setCig(1, false, false);
       label = 'Ho ceduto, inizio ora'; cls = 'btn ghost';
@@ -676,6 +679,9 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
       switchRow('gradual', 'Riduzione graduale') + stepperRow(def('gradualStep')) +
       switchRow('vibrate', 'Vibrazione', '<button type="button" class="mini" id="test-vib">Prova</button><div class="hint" id="testMsg" aria-live="polite"></div>') +
       switchRow('sound', 'Suono', '<button type="button" class="mini" id="test-snd">Prova</button>') +
+      '<div class="row" id="row-quiet" hidden><div class="row-main"><label for="sw-quiet">Orario di riposo</label><div class="hint" id="hint-quiet"></div>' +
+      '<div class="times"><span class="unit">dalle</span><input type="time" id="q-from" aria-label="Inizio dell\u2019orario di riposo"><span class="unit">alle</span><input type="time" id="q-to" aria-label="Fine dell\u2019orario di riposo"></div></div>' +
+      '<input type="checkbox" role="switch" class="switch" id="sw-quiet"></div>' +
       '<div class="row" id="row-notify" hidden><div class="row-main"><div class="lab">Notifiche sul telefono</div><div class="hint" id="hint-notify"></div><button type="button" class="mini" id="test-notify">Prova</button></div></div>' +
       '<div class="row"><div class="row-main"><div class="lab">Storico</div><div class="hint">Cancella sessioni e statistiche salvate su questo dispositivo.</div></div><button type="button" class="mini danger" id="reset">Cancella</button></div>';
   }
@@ -695,7 +701,15 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
     $('sw-vibrate').disabled = !canBuzz();
     $('test-vib').hidden = !canBuzz();
     $('sw-sound').checked = !!s.sound;
+    $('row-quiet').hidden = !remote;
+    $('sw-quiet').checked = !!s.quiet;
+    $('q-from').value = hm(s.quietFrom); $('q-to').value = hm(s.quietTo);
+    $('q-from').disabled = $('q-to').disabled = !s.quiet;
+    $('hint-quiet').textContent = s.quiet
+      ? 'Dalle ' + hm(s.quietFrom) + ' alle ' + hm(s.quietTo) + ' non ti scrivo. Se la pausa finisce di notte, ricevi un solo avviso al mattino.'
+      : 'Spento: le notifiche arrivano a qualsiasi ora.';
   }
+  function hm(m) { m = Number(m) || 0; return pad(Math.floor(m / 60)) + ':' + pad(m % 60); }
   var resetArmed = false;
   $('rulesBody').addEventListener('click', function (e) {
     var b = e.target.closest ? e.target.closest('.step') : null;
@@ -742,6 +756,14 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
     if (t.id === 'sw-gradual') { s.gradual = t.checked; s.gradualStart = t.checked ? nowMs() : null; patch = { gradual: t.checked }; }
     else if (t.id === 'sw-vibrate') { s.vibrate = t.checked; patch = { vibrate: t.checked }; }
     else if (t.id === 'sw-sound') { s.sound = t.checked; if (t.checked) ensureAudio(); patch = { sound: t.checked }; }
+    else if (t.id === 'sw-quiet') { s.quiet = t.checked; patch = { quiet: t.checked }; }
+    else if (t.id === 'q-from' || t.id === 'q-to') {
+      var mm = /^(\d{1,2}):(\d{2})$/.exec(t.value);
+      if (!mm) { syncRules(); return; }
+      var v = Number(mm[1]) * 60 + Number(mm[2]);
+      patch = {}; patch[t.id === 'q-from' ? 'quietFrom' : 'quietTo'] = v;
+      s[t.id === 'q-from' ? 'quietFrom' : 'quietTo'] = v;
+    }
     else return;
     save();
     if (remote) command('settings', patch);

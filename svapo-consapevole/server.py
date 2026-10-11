@@ -4,7 +4,7 @@
 Tiene lo stato (impostazioni, storico, ciclo in corso), fa scorrere i timer anche
 a telefono bloccato e parla con te tramite notifiche con pulsanti:
 
-    pausa finita -> "È ora della sigaretta" [Inizia]
+    pausa finita -> "È ora della sigaretta" [Inizia]   (di notte, 23-8, si aspetta la mattina)
     sessione     -> timer
     sessione finita -> "Hai finito?" [Sì, ho finito] -> parte la pausa
 
@@ -19,6 +19,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -44,6 +45,9 @@ DEFAULT_SETTINGS = {
     "gradualStart": None,
     "vibrate": True,
     "sound": True,
+    "quiet": True,        # orario di riposo: niente notifiche, il ciclo aspetta la mattina
+    "quietFrom": 23 * 60,  # minuti dalla mezzanotte
+    "quietTo": 8 * 60,
 }
 LIMITS = {
     "sessionMin": (3, 15),
@@ -51,8 +55,10 @@ LIMITS = {
     "cooldownMin": (10, 180),
     "goal": (1, 30),
     "gradualStep": (1, 30),
+    "quietFrom": (0, 1439),
+    "quietTo": (0, 1439),
 }
-BOOLS = ("gradual", "vibrate", "sound")
+BOOLS = ("gradual", "vibrate", "sound", "quiet")
 
 lock = threading.RLock()
 stop_event = threading.Event()
@@ -162,6 +168,51 @@ def cooldown_minutes(at):
     return min(m, 600)
 
 
+# ---------- orario di riposo ----------
+
+def ensure_timezone():
+    """Il Supervisor di solito passa TZ all'add-on; se manca la chiedo a Home Assistant."""
+    if os.environ.get("TZ") or not SUPERVISOR_TOKEN:
+        return
+    try:
+        req = urllib.request.Request(f"{HA_API}/config", headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            tz = json.load(r).get("time_zone")
+        if tz:
+            os.environ["TZ"] = tz
+            time.tzset()
+    except Exception as e:
+        log(f"Fuso orario non letto da Home Assistant: {e}")
+
+
+def is_quiet(ts_ms):
+    s = state["settings"]
+    if not s.get("quiet"):
+        return False
+    a, b = int(s["quietFrom"]), int(s["quietTo"])
+    if a == b:
+        return False
+    lt = time.localtime(ts_ms / 1000)
+    m = lt.tm_hour * 60 + lt.tm_min
+    return a <= m < b if a < b else (m >= a or m < b)
+
+
+def quiet_end(ts_ms):
+    """Il primo momento dopo ts_ms in cui finisce la fascia di riposo."""
+    b = int(state["settings"]["quietTo"])
+    d = datetime.fromtimestamp(ts_ms / 1000).replace(hour=b // 60, minute=b % 60, second=0, microsecond=0)
+    if d.timestamp() * 1000 <= ts_ms:
+        d += timedelta(days=1)
+    return int(d.timestamp() * 1000)
+
+
+def cooldown_run(until):
+    """Pausa che finisce a `until`; se cade nella fascia di riposo slitta alla fine della fascia."""
+    if is_quiet(until):
+        return {"phase": "cooldown", "until": quiet_end(until), "morning": True}
+    return {"phase": "cooldown", "until": until}
+
+
 # ---------- notifiche ----------
 
 def _broadcast(payload):
@@ -232,7 +283,8 @@ def prompt_msg(run, reminder=0):
     """Notifica con il pulsante per la fase di attesa in corso."""
     if run["phase"] == "prompt_start":
         title, message, label, action = (
-            "È ora della sigaretta", "Tocca Inizia quando sei pronto.", "Inizia", f"SVAPO_START:{run['id']}")
+            "Buongiorno, è ora della sigaretta" if run.get("morning") else "È ora della sigaretta",
+            "Tocca Inizia quando sei pronto.", "Inizia", f"SVAPO_START:{run['id']}")
         total = options["start_reminders"]
     else:
         title, message, label, action = (
@@ -277,21 +329,24 @@ def _enter_prompt(phase, t, **extra):
     return state["run"]
 
 
-def _confirm_end_locked(t, auto=False):
+def _confirm_end_locked(t, auto=False, quiet=False):
     """Chiude la sessione in attesa di conferma e avvia la pausa da adesso."""
     run = state["run"]
     state["log"].append({"t": run["start"], "d": round(run["sessionMs"] / 1000),
                          "k": "early" if run.get("early") else "ok"})
     del state["log"][:-MAX_LOG]
     cool = cooldown_minutes(t)
-    until = t + int(cool * 60000)
-    state["run"] = {"phase": "cooldown", "until": until}
-    log("Sessione chiusa" + (" senza risposta" if auto else "") + f", pausa di {fmt_min(cool)}")
+    state["run"] = cooldown_run(t + int(cool * 60000))
+    until = state["run"]["until"]
+    why = " in orario di riposo, senza avvisi" if quiet else (" senza risposta" if auto else "")
+    log(f"Sessione chiusa{why}, prossima sigaretta alle {hhmm(until)}")
     return until
 
 
-def pause_msg(until, auto=False):
+def pause_msg(until, auto=False, morning=False):
     text = f"Prossima sigaretta alle {hhmm(until)}."
+    if morning:
+        text = f"Orario di riposo: ti riscrivo alle {hhmm(until)}."
     if auto:
         text += " Non hai risposto, ho chiuso io la sessione."
     return ("notify", "Pausa iniziata", text, {"silent": True})
@@ -313,14 +368,25 @@ def on_timer():
                 end = run["start"] + run["sessionMs"]
                 new = _enter_prompt("prompt_end", t, start=run["start"], sessionMs=run["sessionMs"],
                                     early=bool(run.get("early")), endedAt=end)
-                log("Sessione finita, aspetto la conferma")
-                msgs.append(prompt_msg(new))
+                if is_quiet(t):
+                    _confirm_end_locked(t, auto=True, quiet=True)
+                else:
+                    log("Sessione finita, aspetto la conferma")
+                    msgs.append(prompt_msg(new))
             elif ph == "cooldown":
-                new = _enter_prompt("prompt_start", t)
-                log("Pausa finita, aspetto che tu inizi")
-                msgs.append(prompt_msg(new))
+                if is_quiet(t):  # la fascia di riposo è cambiata mentre la pausa scorreva
+                    state["run"] = cooldown_run(t)
+                    log("Orario di riposo: aspetto la mattina")
+                else:
+                    new = _enter_prompt("prompt_start", t, morning=bool(run.get("morning")))
+                    log("Pausa finita, aspetto che tu inizi")
+                    msgs.append(prompt_msg(new))
             elif ph == "prompt_start":
-                if run["reminders"] >= options["start_reminders"]:
+                if is_quiet(t):
+                    state["run"] = cooldown_run(t)
+                    log("Orario di riposo: la richiesta di iniziare slitta alla mattina")
+                    msgs.append(("clear", TAG))
+                elif run["reminders"] >= options["start_reminders"]:
                     state["run"] = None
                     log("Nessuna risposta: la sessione non parte")
                     msgs.append(("clear", TAG))
@@ -329,9 +395,12 @@ def on_timer():
                     run["nextAt"] = t + remind_ms()
                     msgs.append(prompt_msg(run, run["reminders"]))
             elif ph == "prompt_end":
-                if run["reminders"] >= options["end_reminders"]:
+                if is_quiet(t):
+                    _confirm_end_locked(t, auto=True, quiet=True)
+                    msgs.append(("clear", TAG))
+                elif run["reminders"] >= options["end_reminders"]:
                     until = _confirm_end_locked(t, auto=True)
-                    msgs.append(pause_msg(until, auto=True))
+                    msgs.append(pause_msg(until, auto=True, morning=bool(state["run"].get("morning"))))
                 else:
                     run["reminders"] += 1
                     run["nextAt"] = t + remind_ms()
@@ -390,7 +459,7 @@ def confirm_end(expect_id=None):
         until = _confirm_end_locked(now_ms())
         schedule()
         save_state()
-        msgs.append(pause_msg(until))
+        msgs.append(pause_msg(until, morning=bool(state["run"].get("morning"))))
     dispatch(msgs)
     return None
 
@@ -405,8 +474,7 @@ def stop_session():
         state["log"].append({"t": run["start"], "d": max(0, round((min(t, run["start"] + run["sessionMs"]) - run["start"]) / 1000)),
                              "k": "stopped"})
         del state["log"][:-MAX_LOG]
-        until = t + int(cooldown_minutes(t) * 60000)
-        state["run"] = {"phase": "cooldown", "until": until}
+        state["run"] = cooldown_run(t + int(cooldown_minutes(t) * 60000))
         save_state()
         schedule()
         log("Sessione terminata a mano")
@@ -477,6 +545,7 @@ def state_json():
             "log": state["log"],
             "run": state["run"],
             "cooldownMin": cooldown_minutes(t),
+            "quietNow": is_quiet(t),
             "testTap": test_tap["at"],
             "notify": {
                 "services": len(options["notify_services"]),
@@ -626,6 +695,7 @@ class Handler(BaseHTTPRequestHandler):
 def init():
     global options
     options = load_options()
+    ensure_timezone()
     load_state()
     on_timer()  # porta avanti subito ciò che è scaduto mentre l'add-on era spento
 
@@ -651,7 +721,7 @@ def main():
 
     signal.signal(signal.SIGTERM, _term)
     services = options["notify_services"]
-    log(f"Svapo Consapevole 0.3 in ascolto sulla porta {PORT}. "
+    log(f"Svapo Consapevole 0.4 in ascolto sulla porta {PORT}. "
         f"Notifiche: {', '.join(services) if services else 'nessun dispositivo configurato'}")
     start_background()
     try:

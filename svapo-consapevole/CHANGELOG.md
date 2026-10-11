@@ -1,5 +1,13 @@
 # Registro modifiche
 
+## 0.4.0
+
+- **Orario di riposo**: dalle 23:00 alle 08:00 Svapo non ti scrive. Lo accendi, lo spegni e cambi gli orari in Regole.
+- **Pausa che finisce di notte**: aspetta la mattina. Alle 08:00 ti arriva un solo avviso, "Buongiorno, è ora della sigaretta", con **Inizia**.
+- **Sessione che finisce di notte**: la chiudo io, senza notifiche, e resta nelle statistiche. La pausa riparte dalla mattina.
+- Se il riposo comincia mentre aspetti una risposta, i promemoria si fermano e la notifica ancora aperta sparisce.
+- L'add-on usa il fuso orario di Home Assistant per calcolare la fascia.
+
 ## 0.3.0
 
 - **Notifiche con pulsanti**: a fine pausa ti arriva "È ora della sigaretta" con **Inizia**; se non lo tocchi la sessione non parte. A fine sessione ti arriva "Hai finito?" con **Sì, ho finito**; la pausa parte da quando rispondi.

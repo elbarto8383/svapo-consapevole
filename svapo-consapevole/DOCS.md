@@ -11,6 +11,16 @@ Un timer che dà alla sigaretta elettronica il ritmo di una sigaretta vera, per 
 
 Se non rispondi a "Hai finito?" per troppo tempo, chiudo io la sessione e faccio partire la pausa.
 
+## Orario di riposo
+
+Di notte il ciclo non ti disturba. Di default dalle 23:00 alle 08:00 (si cambia in **Regole**, dove si può anche spegnere):
+
+- se la pausa finisce di notte, aspetto la mattina e alle 08:00 ti arriva un solo avviso, "Buongiorno, è ora della sigaretta", con **Inizia**;
+- se la sessione finisce di notte, la chiudo io senza notifiche e la pausa riparte dalla mattina; la sessione resta nelle statistiche;
+- se il riposo comincia mentre aspetti una tua risposta, i promemoria si fermano e la notifica ancora aperta sparisce.
+
+Dalla pagina puoi comunque iniziare una sessione a mano anche di notte. L'orario segue il fuso di Home Assistant.
+
 La pagina dentro Home Assistant mostra le stesse fasi, le statistiche degli ultimi giorni e le impostazioni. Da lì puoi anche iniziare o confermare a mano. Il timer gira nell'add-on, quindi funziona con il telefono bloccato e la pagina chiusa.
 
 ## Notifiche e pulsanti
