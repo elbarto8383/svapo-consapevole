@@ -1,7 +1,7 @@
 name: Svapo Consapevole
-version: "0.2.2"
+version: "0.3.0"
 slug: svapo_consapevole
-description: Sessioni di svapo a ritmo di sigaretta vera, con notifiche sul telefono
+description: Sessioni di svapo a ritmo di sigaretta vera, con notifiche a pulsanti sul telefono e sul Watch
 arch:
   - aarch64
   - amd64
@@ -13,22 +13,16 @@ ingress_port: 8099
 panel_icon: mdi:timer-sand
 panel_title: Svapo
 homeassistant_api: true
-ports:
-  8099/tcp: null
-ports_description:
-  8099/tcp: Accesso diretto (link a parte, Home dell'iPhone)
 options:
-  direct_access: false
   notify_services: []
-  notify_start: true
-  notify_end: true
-  notify_ready: true
+  reminder_minutes: 3
+  start_reminders: 3
+  end_reminders: 10
   interruption_level: time-sensitive
 schema:
-  direct_access: bool?
   notify_services:
     - str
-  notify_start: bool
-  notify_end: bool
-  notify_ready: bool
-  interruption_level: list(active|time-sensitive)
+  reminder_minutes: int(1,30)?
+  start_reminders: int(0,20)?
+  end_reminders: int(0,30)?
+  interruption_level: list(active|time-sensitive)?

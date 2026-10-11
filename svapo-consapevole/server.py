@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Svapo Consapevole: server dell'add-on per Home Assistant.
 
-Tiene lo stato (impostazioni, storico, sessione in corso), fa scorrere i timer
-anche a telefono bloccato e manda le notifiche tramite il servizio notify di
-Home Assistant. Usa solo la libreria standard.
+Tiene lo stato (impostazioni, storico, ciclo in corso), fa scorrere i timer anche
+a telefono bloccato e parla con te tramite notifiche con pulsanti:
+
+    pausa finita -> "È ora della sigaretta" [Inizia]
+    sessione     -> timer
+    sessione finita -> "Hai finito?" [Sì, ho finito] -> parte la pausa
+
+I tocchi sui pulsanti arrivano dal websocket di Home Assistant (evento
+mobile_app_notification_action). L'unica dipendenza esterna è websocket-client.
 """
 import json
 import os
+import secrets
 import signal
 import threading
 import time
@@ -19,17 +26,13 @@ DATA_DIR = Path(os.environ.get("SVAPO_DATA", "/data"))
 WEB_DIR = Path(os.environ.get("SVAPO_WEB", Path(__file__).resolve().parent / "web"))
 PORT = int(os.environ.get("SVAPO_PORT", "8099"))
 HA_API = os.environ.get("SVAPO_HA_API", "http://supervisor/core/api").rstrip("/")
+HA_WS = os.environ.get("SVAPO_HA_WS", "ws://supervisor/core/websocket")
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
+WS_BACKOFF_MAX = float(os.environ.get("SVAPO_WS_BACKOFF_MAX", "60"))
 # Dentro Home Assistant, solo il gateway ingress del Supervisor può parlare con l'add-on.
 INGRESS_PEERS = {"172.30.32.2", "127.0.0.1", "::1"}
 MAX_LOG = 400
-LATE_MS = 120_000  # oltre questo ritardo non si manda più la notifica
-# File statici serviti oltre alla pagina: manifest e icone per la Home dell'iPhone.
-STATIC = {
-    "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json; charset=utf-8"),
-    "/icon-180.png": ("icon-180.png", "image/png"),
-    "/icon-512.png": ("icon-512.png", "image/png"),
-}
+TAG = "svapo-ciclo"  # una sola notifica alla volta: ogni messaggio sostituisce il precedente
 
 DEFAULT_SETTINGS = {
     "sessionMin": 6,
@@ -52,16 +55,18 @@ LIMITS = {
 BOOLS = ("gradual", "vibrate", "sound")
 
 lock = threading.RLock()
+stop_event = threading.Event()
 state = {"settings": dict(DEFAULT_SETTINGS), "log": [], "run": None}
 options = {
-    "direct_access": False,
     "notify_services": [],
-    "notify_start": True,
-    "notify_end": True,
-    "notify_ready": True,
+    "reminder_minutes": 3,
+    "start_reminders": 3,
+    "end_reminders": 10,
     "interruption_level": "time-sensitive",
 }
 timer = None
+ws_ok = False
+test_tap = {"id": None, "at": None}
 
 
 def log(msg):
@@ -92,7 +97,11 @@ def load_options():
         if s:
             services.append(s)
     opts["notify_services"] = services
-    opts["direct_access"] = bool(opts["direct_access"])
+    for key, lo, kind in (("reminder_minutes", 0.01, float), ("start_reminders", 0, int), ("end_reminders", 0, int)):
+        try:
+            opts[key] = max(lo, kind(opts[key]))
+        except (TypeError, ValueError):
+            opts[key] = options[key]
     if opts["interruption_level"] not in ("active", "time-sensitive"):
         opts["interruption_level"] = "time-sensitive"
     return opts
@@ -110,8 +119,9 @@ def load_state():
         state["settings"] = {**DEFAULT_SETTINGS, **data["settings"]}
     if isinstance(data.get("log"), list):
         state["log"] = data["log"][-MAX_LOG:]
-    if isinstance(data.get("run"), dict):
-        state["run"] = data["run"]
+    run = data.get("run")
+    if isinstance(run, dict) and run.get("phase") in ("session", "cooldown", "prompt_start", "prompt_end"):
+        state["run"] = run
 
 
 def save_state():
@@ -135,6 +145,14 @@ def fmt_min(m):
     return f"{m} min"
 
 
+def hhmm(ts_ms):
+    return time.strftime("%H:%M", time.localtime(ts_ms / 1000))
+
+
+def remind_ms():
+    return int(options["reminder_minutes"] * 60000)
+
+
 def cooldown_minutes(at):
     s = state["settings"]
     m = s["cooldownMin"]
@@ -146,29 +164,20 @@ def cooldown_minutes(at):
 
 # ---------- notifiche ----------
 
-def send_notification(title, message, tag):
-    """Manda la notifica a tutti i servizi configurati. Ritorna (inviate, motivo)."""
+def _broadcast(payload):
+    """Manda la stessa richiesta a tutti i servizi configurati. Ritorna (inviate, motivo)."""
     services = options["notify_services"]
     if not services:
         return 0, "Nessun dispositivo configurato nelle opzioni dell'add-on."
     if not SUPERVISOR_TOKEN:
         return 0, "Token del Supervisor non disponibile."
-    payload = json.dumps({
-        "title": title,
-        "message": message,
-        "data": {
-            "tag": tag,
-            "ttl": 0,
-            "priority": "high",
-            "push": {"interruption-level": options["interruption_level"]},
-        },
-    }).encode("utf-8")
+    body = json.dumps(payload).encode("utf-8")
     sent = 0
     reason = ""
     for svc in services:
         req = urllib.request.Request(
             f"{HA_API}/services/notify/{svc}",
-            data=payload,
+            data=body,
             method="POST",
             headers={
                 "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
@@ -187,11 +196,63 @@ def send_notification(title, message, tag):
     return sent, reason
 
 
-def notify_async(title, message, tag):
-    threading.Thread(target=send_notification, args=(title, message, tag), daemon=True).start()
+def send_notification(title, message, tag=TAG, actions=None, silent=False):
+    data = {"tag": tag, "ttl": 0, "priority": "high"}
+    if silent:
+        data["push"] = {"sound": "none"}
+    else:
+        data["push"] = {"interruption-level": options["interruption_level"]}
+    if actions:
+        data["actions"] = actions
+    return _broadcast({"title": title, "message": message, "data": data})
+
+
+def clear_notification(tag=TAG):
+    return _broadcast({"message": "clear_notification", "data": {"tag": tag}})
+
+
+def _dispatch(msgs):
+    for m in msgs:
+        try:
+            if m[0] == "clear":
+                clear_notification(m[1])
+            else:
+                _, title, message, kwargs = m
+                send_notification(title, message, **kwargs)
+        except Exception as e:  # una notifica persa non deve fermare il ciclo
+            log(f"Notifica non inviata: {e}")
+
+
+def dispatch(msgs):
+    if msgs:
+        threading.Thread(target=_dispatch, args=(msgs,), daemon=True).start()
+
+
+def prompt_msg(run, reminder=0):
+    """Notifica con il pulsante per la fase di attesa in corso."""
+    if run["phase"] == "prompt_start":
+        title, message, label, action = (
+            "È ora della sigaretta", "Tocca Inizia quando sei pronto.", "Inizia", f"SVAPO_START:{run['id']}")
+        total = options["start_reminders"]
+    else:
+        title, message, label, action = (
+            "Sessione finita", "Hai finito?", "Sì, ho finito", f"SVAPO_END:{run['id']}")
+        total = options["end_reminders"]
+    if reminder:
+        message = f"{message} Ti aspetto (promemoria {reminder} di {total})."
+    return ("notify", title, message, {"actions": [{"action": action, "title": label}]})
 
 
 # ---------- timer ----------
+
+def next_due(run):
+    ph = run["phase"]
+    if ph == "session":
+        return run["start"] + run["sessionMs"]
+    if ph == "cooldown":
+        return run["until"]
+    return run.get("nextAt")
+
 
 def schedule():
     """Arma il timer sul prossimo evento. Va chiamata con il lock preso."""
@@ -202,60 +263,99 @@ def schedule():
     run = state["run"]
     if not run:
         return
-    target = run["start"] + run["sessionMs"] if run["phase"] == "session" else run["until"]
-    delay = max(0.05, (target - now_ms()) / 1000)
-    timer = threading.Timer(delay, on_timer)
+    due = next_due(run)
+    if due is None:
+        return
+    timer = threading.Timer(max(0.05, (due - now_ms()) / 1000), on_timer)
     timer.daemon = True
     timer.start()
 
 
-def _finish_session_locked(stopped, at):
+def _enter_prompt(phase, t, **extra):
+    state["run"] = {"phase": phase, "id": secrets.token_hex(3), "since": t,
+                    "reminders": 0, "nextAt": t + remind_ms(), **extra}
+    return state["run"]
+
+
+def _confirm_end_locked(t, auto=False):
+    """Chiude la sessione in attesa di conferma e avvia la pausa da adesso."""
     run = state["run"]
-    dur = max(0, min(at - run["start"], run["sessionMs"]))
-    kind = "early" if run.get("early") else ("stopped" if stopped else "ok")
-    state["log"].append({"t": run["start"], "d": round(dur / 1000), "k": kind})
+    state["log"].append({"t": run["start"], "d": round(run["sessionMs"] / 1000),
+                         "k": "early" if run.get("early") else "ok"})
     del state["log"][:-MAX_LOG]
-    cool = cooldown_minutes(at)
-    state["run"] = {"phase": "cooldown", "until": at + int(cool * 60000)}
-    save_state()
-    return cool
+    cool = cooldown_minutes(t)
+    until = t + int(cool * 60000)
+    state["run"] = {"phase": "cooldown", "until": until}
+    log("Sessione chiusa" + (" senza risposta" if auto else "") + f", pausa di {fmt_min(cool)}")
+    return until
+
+
+def pause_msg(until, auto=False):
+    text = f"Prossima sigaretta alle {hhmm(until)}."
+    if auto:
+        text += " Non hai risposto, ho chiuso io la sessione."
+    return ("notify", "Pausa iniziata", text, {"silent": True})
 
 
 def on_timer():
     msgs = []
     with lock:
         t = now_ms()
-        run = state["run"]
-        if run and run["phase"] == "session":
-            end = run["start"] + run["sessionMs"]
-            if t >= end:
-                cool = _finish_session_locked(False, end)
-                log(f"Sessione finita, pausa di {fmt_min(cool)}")
-                if options["notify_end"] and t - end < LATE_MS:
-                    msgs.append(("Sessione finita", f"Prossima sigaretta tra {fmt_min(cool)}.", "svapo-fine"))
-                run = state["run"]
-        if run and run["phase"] == "cooldown" and t >= run["until"]:
-            until = run["until"]
-            state["run"] = None
-            save_state()
-            log("Pausa finita")
-            if options["notify_ready"] and t - until < LATE_MS:
-                msgs.append(("Nuova sigaretta", "La pausa è finita. Quando vuoi, inizia una nuova sessione.", "svapo-pronta"))
+        for _ in range(8):  # un giro per ogni fase scaduta, con un tetto di sicurezza
+            run = state["run"]
+            if not run:
+                break
+            due = next_due(run)
+            if due is None or due > t:
+                break
+            ph = run["phase"]
+            if ph == "session":
+                end = run["start"] + run["sessionMs"]
+                new = _enter_prompt("prompt_end", t, start=run["start"], sessionMs=run["sessionMs"],
+                                    early=bool(run.get("early")), endedAt=end)
+                log("Sessione finita, aspetto la conferma")
+                msgs.append(prompt_msg(new))
+            elif ph == "cooldown":
+                new = _enter_prompt("prompt_start", t)
+                log("Pausa finita, aspetto che tu inizi")
+                msgs.append(prompt_msg(new))
+            elif ph == "prompt_start":
+                if run["reminders"] >= options["start_reminders"]:
+                    state["run"] = None
+                    log("Nessuna risposta: la sessione non parte")
+                    msgs.append(("clear", TAG))
+                else:
+                    run["reminders"] += 1
+                    run["nextAt"] = t + remind_ms()
+                    msgs.append(prompt_msg(run, run["reminders"]))
+            elif ph == "prompt_end":
+                if run["reminders"] >= options["end_reminders"]:
+                    until = _confirm_end_locked(t, auto=True)
+                    msgs.append(pause_msg(until, auto=True))
+                else:
+                    run["reminders"] += 1
+                    run["nextAt"] = t + remind_ms()
+                    msgs.append(prompt_msg(run, run["reminders"]))
+        save_state()
         schedule()
-    for m in msgs:
-        notify_async(*m)
+    dispatch(msgs)
 
 
 # ---------- comandi ----------
 
-def start_session(early=False):
+def start_session(early=False, expect_id=None):
     """Ritorna None se va bene, altrimenti il motivo del rifiuto."""
-    msg = None
+    msgs = []
     with lock:
         run = state["run"]
-        if run and run["phase"] == "session":
+        ph = run["phase"] if run else None
+        if expect_id and (ph != "prompt_start" or run.get("id") != expect_id):
+            return "Richiesta scaduta."
+        if ph == "session":
             return None
-        if run and run["phase"] == "cooldown" and not early:
+        if ph == "prompt_end":
+            return "Conferma prima la sessione finita."
+        if ph == "cooldown" and not early:
             return "Pausa in corso."
         s = state["settings"]
         session_ms = int(s["sessionMin"] * 60000)
@@ -270,24 +370,67 @@ def start_session(early=False):
         }
         save_state()
         schedule()
-        puffs = max(1, session_ms // puff_ms)
         log("Sessione iniziata" + (" (fuori programma)" if early else ""))
-        if options["notify_start"]:
-            title = "Sessione fuori programma" if early else "Sessione iniziata"
-            msg = (title, f"{fmt_min(session_ms / 60000)} e circa {puffs} tiri. Con calma.", "svapo-inizio")
-    if msg:
-        notify_async(*msg)
+        if ph == "prompt_start":
+            puffs = max(1, session_ms // puff_ms)
+            msgs.append(("notify", "Sessione iniziata",
+                         f"{fmt_min(session_ms / 60000)} e circa {puffs} tiri. Con calma.", {"silent": True}))
+    dispatch(msgs)
+    return None
+
+
+def confirm_end(expect_id=None):
+    msgs = []
+    with lock:
+        run = state["run"]
+        if not run or run["phase"] != "prompt_end":
+            return "Nessuna sessione da confermare."
+        if expect_id and run.get("id") != expect_id:
+            return "Richiesta scaduta."
+        until = _confirm_end_locked(now_ms())
+        schedule()
+        save_state()
+        msgs.append(pause_msg(until))
+    dispatch(msgs)
     return None
 
 
 def stop_session():
+    """Termina a mano una sessione in corso: la pausa parte subito, senza chiedere conferma."""
     with lock:
         run = state["run"]
         if not run or run["phase"] != "session":
             return
-        _finish_session_locked(True, now_ms())
-        log("Sessione terminata a mano")
+        t = now_ms()
+        state["log"].append({"t": run["start"], "d": max(0, round((min(t, run["start"] + run["sessionMs"]) - run["start"]) / 1000)),
+                             "k": "stopped"})
+        del state["log"][:-MAX_LOG]
+        until = t + int(cooldown_minutes(t) * 60000)
+        state["run"] = {"phase": "cooldown", "until": until}
+        save_state()
         schedule()
+        log("Sessione terminata a mano")
+
+
+def handle_action(action):
+    """Tocco su un pulsante di notifica, arrivato dall'evento di Home Assistant."""
+    if not isinstance(action, str) or not action.startswith("SVAPO_"):
+        return  # pulsanti di altre app
+    kind, _, rid = action.partition(":")
+    if kind == "SVAPO_START":
+        err = start_session(expect_id=rid)
+    elif kind == "SVAPO_END":
+        err = confirm_end(expect_id=rid)
+    elif kind == "SVAPO_TEST":
+        with lock:
+            test_tap["id"], test_tap["at"] = rid, now_ms()
+        log("Tocco di prova ricevuto")
+        dispatch([("notify", "Tocco ricevuto", "Il pulsante funziona.", {"silent": True})])
+        return
+    else:
+        return
+    if err:
+        log(f"Tocco ignorato ({kind}): {err}")
 
 
 def update_settings(patch):
@@ -314,6 +457,17 @@ def reset_log():
         save_state()
 
 
+def send_test():
+    """Notifica di prova con un pulsante: serve a controllare tutto il giro, Watch compreso."""
+    rid = secrets.token_hex(3)
+    with lock:
+        test_tap["id"], test_tap["at"] = None, None
+    sent, reason = send_notification(
+        "Prova di Svapo", "Tocca il pulsante per controllare che il giro funzioni.",
+        tag="svapo-prova", actions=[{"action": f"SVAPO_TEST:{rid}", "title": "Funziona"}])
+    return sent, reason
+
+
 def state_json():
     with lock:
         t = now_ms()
@@ -323,13 +477,69 @@ def state_json():
             "log": state["log"],
             "run": state["run"],
             "cooldownMin": cooldown_minutes(t),
+            "testTap": test_tap["at"],
             "notify": {
                 "services": len(options["notify_services"]),
-                "start": options["notify_start"],
-                "end": options["notify_end"],
-                "ready": options["notify_ready"],
+                "listening": ws_ok,
+                "remindMin": options["reminder_minutes"],
+                "startReminders": options["start_reminders"],
+                "endReminders": options["end_reminders"],
             },
         }).encode("utf-8")
+
+
+# ---------- ascolto dei tocchi (websocket di Home Assistant) ----------
+
+def ws_loop():
+    global ws_ok
+    try:
+        import websocket
+    except ImportError:
+        log("Libreria websocket-client mancante: i pulsanti delle notifiche non funzioneranno.")
+        return
+    backoff = 1.0
+    while not stop_event.is_set():
+        ws = None
+        try:
+            ws = websocket.create_connection(HA_WS, timeout=15)
+            if json.loads(ws.recv()).get("type") != "auth_required":
+                raise RuntimeError("risposta inattesa da Home Assistant")
+            ws.send(json.dumps({"type": "auth", "access_token": SUPERVISOR_TOKEN}))
+            if json.loads(ws.recv()).get("type") != "auth_ok":
+                raise RuntimeError("autenticazione rifiutata")
+            ws.send(json.dumps({"id": 1, "type": "subscribe_events", "event_type": "mobile_app_notification_action"}))
+            ws.settimeout(30)
+            ws_ok = True
+            backoff = 1.0
+            log("In ascolto dei tocchi sulle notifiche")
+            ping_id = 1
+            while not stop_event.is_set():
+                try:
+                    raw = ws.recv()
+                except websocket.WebSocketTimeoutException:
+                    ping_id += 1
+                    ws.send(json.dumps({"id": ping_id, "type": "ping"}))
+                    continue
+                if not raw:
+                    raise ConnectionError("connessione chiusa")
+                msg = json.loads(raw)
+                if msg.get("type") == "result" and msg.get("id") == 1 and not msg.get("success"):
+                    raise RuntimeError("iscrizione agli eventi rifiutata")
+                if msg.get("type") == "event":
+                    data = (msg.get("event") or {}).get("data") or {}
+                    handle_action(data.get("action"))
+        except Exception as e:
+            if not stop_event.is_set():
+                log(f"Connessione a Home Assistant interrotta: {e}")
+        finally:
+            ws_ok = False
+            try:
+                if ws:
+                    ws.close()
+            except Exception:
+                pass
+        stop_event.wait(backoff)
+        backoff = min(backoff * 2, WS_BACKOFF_MAX)
 
 
 # ---------- HTTP ----------
@@ -343,10 +553,7 @@ class Handler(BaseHTTPRequestHandler):
     def _allowed(self):
         if not SUPERVISOR_TOKEN:
             return True
-        if self.client_address[0] in INGRESS_PEERS:
-            return True
-        # Accesso diretto dalla porta di rete: solo se l'hai attivato nelle opzioni.
-        return bool(options.get("direct_access"))
+        return self.client_address[0] in INGRESS_PEERS
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         self.send_response(code)
@@ -372,13 +579,6 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 return self._json(404, {"error": "pagina non trovata"})
             return self._send(200, body, "text/html; charset=utf-8")
-        asset = STATIC.get(path)
-        if asset:
-            try:
-                body = (WEB_DIR / asset[0]).read_bytes()
-            except OSError:
-                return self._json(404, {"error": "file non trovato"})
-            return self._send(200, body, asset[1])
         return self._json(404, {"error": "non trovato"})
 
     def do_POST(self):
@@ -403,6 +603,10 @@ class Handler(BaseHTTPRequestHandler):
             err = start_session(bool(body.get("early")))
             if err:
                 return self._json(409, {"error": err})
+        elif path == "/api/confirm":
+            err = confirm_end()
+            if err:
+                return self._json(409, {"error": err})
         elif path == "/api/stop":
             stop_session()
         elif path == "/api/settings":
@@ -410,8 +614,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/reset":
             reset_log()
         elif path == "/api/test-notify":
-            sent, reason = send_notification(
-                "Prova di Svapo Consapevole", "Le notifiche funzionano.", "svapo-prova")
+            sent, reason = send_test()
             return self._json(200, {"sent": sent > 0, "devices": sent, "reason": reason})
         else:
             return self._json(404, {"error": "non trovato"})
@@ -424,7 +627,12 @@ def init():
     global options
     options = load_options()
     load_state()
-    on_timer()  # chiude subito ciò che è scaduto mentre l'add-on era spento
+    on_timer()  # porta avanti subito ciò che è scaduto mentre l'add-on era spento
+
+
+def start_background():
+    if SUPERVISOR_TOKEN:
+        threading.Thread(target=ws_loop, daemon=True).start()
 
 
 def make_server(port):
@@ -436,13 +644,16 @@ def make_server(port):
 def main():
     init()
     httpd = make_server(PORT)
-    signal.signal(
-        signal.SIGTERM,
-        lambda *_: threading.Thread(target=httpd.shutdown, daemon=True).start(),
-    )
+
+    def _term(*_):
+        stop_event.set()
+        threading.Thread(target=httpd.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _term)
     services = options["notify_services"]
-    log(f"Svapo Consapevole in ascolto sulla porta {PORT}. "
+    log(f"Svapo Consapevole 0.3 in ascolto sulla porta {PORT}. "
         f"Notifiche: {', '.join(services) if services else 'nessun dispositivo configurato'}")
+    start_background()
     try:
         httpd.serve_forever()
     finally:

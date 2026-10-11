@@ -1,5 +1,15 @@
 # Registro modifiche
 
+## 0.3.0
+
+- **Notifiche con pulsanti**: a fine pausa ti arriva "È ora della sigaretta" con **Inizia**; se non lo tocchi la sessione non parte. A fine sessione ti arriva "Hai finito?" con **Sì, ho finito**; la pausa parte da quando rispondi.
+- **Promemoria**: se non rispondi ti ricordo ogni 3 minuti. Dopo 3 promemoria senza **Inizia** smetto e aspetto. Dopo 10 senza **Sì, ho finito** chiudo io la sessione e parte la pausa.
+- **Funziona dal Watch**: i pulsanti compaiono anche sull'Apple Watch con la Watch App di Home Assistant installata.
+- Nelle Regole il tasto **Prova** manda una notifica con il pulsante **Funziona** e conferma quando il tocco è arrivato, così controlli tutto il giro.
+- **Più sicuro**: tolto l'accesso diretto dalla rete (porta 8099, opzione `direct_access`, icona per la Home). Svapo si apre solo dalla barra laterale di Home Assistant, protetto dal suo login.
+- Tolte le opzioni `notify_start`, `notify_end` e `notify_ready`, sostituite dai pulsanti. Nuove opzioni: `reminder_minutes`, `start_reminders`, `end_reminders`.
+- Il tasto **Termina qui** durante la sessione fa partire subito la pausa, senza chiedere conferma.
+
 ## 0.2.2
 
 - Nelle Regole la riga **Vibrazione** ora dice chiaramente quando il dispositivo non la supporta, come su iPhone: l'interruttore si disattiva e il tasto Prova sparisce. Su iPhone il telefono vibra con le notifiche di Home Assistant.

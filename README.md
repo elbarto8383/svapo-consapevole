@@ -1,6 +1,6 @@
 # Svapo Consapevole
 
-Add-on per Home Assistant: un timer che dà alla sigaretta elettronica il ritmo di una sigaretta vera, con notifiche sul telefono a inizio sessione, fine sessione e fine pausa.
+Add-on per Home Assistant: un timer che dà alla sigaretta elettronica il ritmo di una sigaretta vera, con notifiche a pulsanti: tocchi **Inizia** quando finisce la pausa e **Sì, ho finito** quando finisce la sessione, anche dall'Apple Watch.
 
 ## Installazione
 

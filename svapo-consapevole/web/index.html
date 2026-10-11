@@ -3,14 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<link rel="icon" href="icon-180.png" type="image/png">
-<link rel="apple-touch-icon" href="icon-180.png">
-<link rel="manifest" href="manifest.webmanifest">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Svapo">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#111416">
+<link rel="icon" href="data:,">
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px)}[hidden]{display:none!important}</style>
 <title>Svapo Consapevole</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -309,14 +302,11 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
   function showNotify(n) {
     var row = $('row-notify');
     if (!row) return;
-    var ev = [];
-    if (n.start) ev.push('inizio sessione');
-    if (n.end) ev.push('fine sessione');
-    if (n.ready) ev.push('fine pausa');
     row.hidden = false;
     $('hint-notify').textContent = n.services > 0
-      ? 'Su ' + n.services + (n.services === 1 ? ' dispositivo' : ' dispositivi') + ': ' + (ev.join(', ') || 'nessun evento attivo') + '.'
-      : 'Nessun dispositivo configurato. Inserisci il servizio notify nelle opzioni dell’add-on.';
+      ? 'Su ' + n.services + (n.services === 1 ? ' dispositivo' : ' dispositivi') + ': a fine pausa arriva Inizia, a fine sessione arriva S\u00ec, ho finito.'
+        + (n.listening ? '' : ' Non sto ascoltando i tocchi: riavvia l\u2019add-on.')
+      : 'Nessun dispositivo configurato. Inserisci il servizio notify nelle opzioni dell\u2019add-on.';
   }
   function adopt(d) {
     if (!d || !d.settings) return;
@@ -433,7 +423,8 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
 
   function tick() {
     var r = store.run, now = nowMs();
-    if (remote && Date.now() - lastSync > 15000) sync();
+    var waiting = r && (r.phase === 'prompt_start' || r.phase === 'prompt_end');
+    if (remote && Date.now() - lastSync > (waiting ? 4000 : 15000)) sync();
     if (r && r.phase === 'session') {
       var el = now - r.start;
       if (el >= r.sessionMs) {
@@ -517,6 +508,27 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
       setCig(Math.min(1, e / r.sessionMs), true, puffing);
       label = 'Termina qui'; cls = 'btn secondary';
       note = 'Tieni questa schermata aperta: a schermo bloccato i segnali si fermano.';
+    } else if (phase === 'prompt_start') {
+      el.phase.textContent = 'Pronta';
+      el.clock.textContent = fmt(s.sessionMin * 60000);
+      el.cue.textContent = 'Tocca Inizia';
+      el.cue.classList.add('on');
+      el.sub.textContent = 'Ti ho scritto sul telefono. Puoi iniziare anche da qui.';
+      ensurePips(plannedPuffs());
+      setPips(0, -1);
+      setCig(0, false, false);
+      label = 'Inizia sessione'; cls = 'btn primary';
+      note = 'La sessione parte solo quando rispondi.';
+    } else if (phase === 'prompt_end') {
+      el.phase.textContent = 'Sessione finita';
+      el.clock.textContent = '0:00';
+      el.cue.textContent = 'Hai finito?';
+      el.cue.classList.add('on');
+      el.sub.textContent = 'Conferma qui o dalla notifica.';
+      ensurePips(0);
+      setCig(1, false, false);
+      label = 'S\u00ec, ho finito'; cls = 'btn primary';
+      note = 'La pausa parte da quando rispondi.';
     } else if (phase === 'cooldown') {
       var left = r.until - now;
       el.phase.textContent = 'Pausa';
@@ -561,7 +573,8 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
 
   el.btn.addEventListener('click', function () {
     var r = store.run, ph = r ? r.phase : 'idle';
-    if (ph === 'idle') { startSession(false); return; }
+    if (ph === 'idle' || ph === 'prompt_start') { startSession(false); return; }
+    if (ph === 'prompt_end') { command('confirm'); return; }
     if (!armed) {
       armed = true;
       el.btn.classList.add('armed');
@@ -701,9 +714,18 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
     } else if (id === 'test-snd') {
       ensureAudio(); beep(660, 0.2);
     } else if (id === 'test-notify') {
+      var t0 = nowMs();
       $('hint-notify').textContent = 'Invio in corso...';
       api('test-notify', {}).then(function (r) {
-        $('hint-notify').textContent = r.sent ? 'Notifica inviata.' : (r.reason || 'Notifica non inviata.');
+        if (!r.sent) { $('hint-notify').textContent = r.reason || 'Notifica non inviata.'; return; }
+        $('hint-notify').textContent = 'Notifica inviata. Tocca Funziona, anche dal Watch. Su iPhone tieni premuta la notifica per vedere il pulsante.';
+        var n = 0, iv = setInterval(function () {
+          n++;
+          api('state').then(function (d) {
+            if (d.testTap && d.testTap >= t0) { clearInterval(iv); $('hint-notify').textContent = 'Tocco ricevuto: il giro funziona.'; }
+            else if (n >= 30) { clearInterval(iv); $('hint-notify').textContent = 'Nessun tocco ricevuto in un minuto. Riprova o guarda i log dell\u2019add-on.'; }
+          }).catch(function () {});
+        }, 2000);
       }).catch(function () { $('hint-notify').textContent = 'Notifica non inviata.'; });
     } else if (id === 'reset') {
       if (!resetArmed) {
