@@ -1,5 +1,9 @@
 # Registro modifiche
 
+## 0.2.2
+
+- Nelle Regole la riga **Vibrazione** ora dice chiaramente quando il dispositivo non la supporta, come su iPhone: l'interruttore si disattiva e il tasto Prova sparisce. Su iPhone il telefono vibra con le notifiche di Home Assistant.
+
 ## 0.2.1
 
 - Corretto l'errore "Missing option 'direct_access'" che impediva di salvare le opzioni dopo l'aggiornamento alla 0.2.0. L'opzione ora è facoltativa.

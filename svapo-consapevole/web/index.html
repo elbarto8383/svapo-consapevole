@@ -390,6 +390,7 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
       o.start(t); o.stop(t + dur + 0.03);
     } catch (e) { /* ignorato */ }
   }
+  function canBuzz() { try { return typeof navigator.vibrate === 'function'; } catch (e) { return false; } }
   function buzz(p) {
     try { return typeof navigator.vibrate === 'function' ? navigator.vibrate(p) : false; } catch (e) { return false; }
   }
@@ -673,11 +674,13 @@ output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; f
     $('hint-cooldownMin').textContent = 'Adesso: ' + fmtMin(effCool()) + (s.gradual ? ' (con la riduzione)' : '') + '.';
     $('hint-goal').textContent = 'Il massimo che vuoi concederti in un giorno.';
     $('hint-gradual').textContent = s.gradual ? 'Attiva. Una nuova settimana allunga la pausa.' : 'Allunga la pausa di qualche minuto ogni settimana.';
-    $('hint-vibrate').textContent = 'Un impulso a ogni tiro.';
+    $('hint-vibrate').textContent = canBuzz() ? 'Un impulso a ogni tiro.' : 'Questo dispositivo non fa vibrare le pagine web (succede su iPhone). Il telefono vibra con le notifiche di Home Assistant.';
     $('hint-sound').textContent = 'Un breve segnale a ogni tiro.';
     $('row-gradualStep').hidden = !s.gradual;
     $('sw-gradual').checked = !!s.gradual;
-    $('sw-vibrate').checked = !!s.vibrate;
+    $('sw-vibrate').checked = !!s.vibrate && canBuzz();
+    $('sw-vibrate').disabled = !canBuzz();
+    $('test-vib').hidden = !canBuzz();
     $('sw-sound').checked = !!s.sound;
   }
   var resetArmed = false;
