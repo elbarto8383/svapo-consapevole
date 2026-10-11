@@ -1,5 +1,5 @@
 name: Svapo Consapevole
-version: "0.1.0"
+version: "0.2.0"
 slug: svapo_consapevole
 description: Sessioni di svapo a ritmo di sigaretta vera, con notifiche sul telefono
 arch:
@@ -13,13 +13,19 @@ ingress_port: 8099
 panel_icon: mdi:timer-sand
 panel_title: Svapo
 homeassistant_api: true
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Accesso diretto (link a parte, Home dell'iPhone)
 options:
+  direct_access: false
   notify_services: []
   notify_start: true
   notify_end: true
   notify_ready: true
   interruption_level: time-sensitive
 schema:
+  direct_access: bool
   notify_services:
     - str
   notify_start: bool

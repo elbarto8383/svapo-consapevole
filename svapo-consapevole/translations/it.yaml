@@ -1,4 +1,10 @@
 configuration:
+  direct_access:
+    name: Accesso diretto dalla rete
+    description: >-
+      Permette di aprire Svapo da un indirizzo a parte (porta di rete), senza passare
+      dalla barra laterale di Home Assistant. Non c'è nessuna password: usalo solo
+      nella rete di casa oppure dietro un reverse proxy protetto.
   notify_services:
     name: Dispositivi per le notifiche
     description: >-
@@ -18,3 +24,5 @@ configuration:
     description: >-
       Con time-sensitive la notifica arriva anche con una Modalità Focus attiva.
       Con active segue le regole normali.
+network:
+  8099/tcp: Porta per l'accesso diretto (lascia vuoto per tenerlo spento)

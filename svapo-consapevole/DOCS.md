@@ -33,11 +33,30 @@ La vibrazione dipende dalle impostazioni di suono e vibrazione del telefono e da
 
 | Opzione | Significato |
 | --- | --- |
+| `direct_access` | Consente l'accesso dalla porta di rete, senza ingress |
 | `notify_services` | Elenco dei servizi notify da avvisare |
 | `notify_start` | Notifica a inizio sessione |
 | `notify_end` | Notifica a fine sessione |
 | `notify_ready` | Notifica a fine pausa |
 | `interruption_level` | `time-sensitive` oppure `active` (solo iPhone) |
+
+## Link a parte e Home dell'iPhone
+
+Oltre che dalla barra laterale, puoi aprire Svapo da un indirizzo tutto suo.
+
+1. Nelle opzioni dell'add-on attiva **Accesso diretto dalla rete**.
+2. Nella scheda **Rete** dell'add-on scrivi la porta, per esempio `8099`, e salva.
+3. Riavvia l'add-on. Ora risponde su `http://IP-DI-HOME-ASSISTANT:8099`.
+
+L'accesso diretto non ha password: chiunque raggiunga la porta può usare l'app, azzerare lo storico e mandare notifiche di prova. Tienila nella rete di casa. Se la pubblichi con un reverse proxy, proteggila con autenticazione o con un elenco di indirizzi ammessi.
+
+### Metterla nella Home dell'iPhone
+
+1. Apri l'indirizzo in **Safari** (con Chrome su iPhone non compare l'opzione).
+2. Tocca **Condividi**, poi **Aggiungi alla schermata Home**.
+3. Lascia il nome **Svapo** e conferma.
+
+L'icona si apre a schermo intero, come un'app. Se la apri da fuori casa serve un indirizzo raggiungibile da fuori, ad esempio quello del tuo reverse proxy.
 
 ## Dati
 

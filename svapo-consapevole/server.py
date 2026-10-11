@@ -24,6 +24,12 @@ SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 INGRESS_PEERS = {"172.30.32.2", "127.0.0.1", "::1"}
 MAX_LOG = 400
 LATE_MS = 120_000  # oltre questo ritardo non si manda più la notifica
+# File statici serviti oltre alla pagina: manifest e icone per la Home dell'iPhone.
+STATIC = {
+    "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json; charset=utf-8"),
+    "/icon-180.png": ("icon-180.png", "image/png"),
+    "/icon-512.png": ("icon-512.png", "image/png"),
+}
 
 DEFAULT_SETTINGS = {
     "sessionMin": 6,
@@ -48,6 +54,7 @@ BOOLS = ("gradual", "vibrate", "sound")
 lock = threading.RLock()
 state = {"settings": dict(DEFAULT_SETTINGS), "log": [], "run": None}
 options = {
+    "direct_access": False,
     "notify_services": [],
     "notify_start": True,
     "notify_end": True,
@@ -85,6 +92,7 @@ def load_options():
         if s:
             services.append(s)
     opts["notify_services"] = services
+    opts["direct_access"] = bool(opts["direct_access"])
     if opts["interruption_level"] not in ("active", "time-sensitive"):
         opts["interruption_level"] = "time-sensitive"
     return opts
@@ -335,7 +343,10 @@ class Handler(BaseHTTPRequestHandler):
     def _allowed(self):
         if not SUPERVISOR_TOKEN:
             return True
-        return self.client_address[0] in INGRESS_PEERS
+        if self.client_address[0] in INGRESS_PEERS:
+            return True
+        # Accesso diretto dalla porta di rete: solo se l'hai attivato nelle opzioni.
+        return bool(options.get("direct_access"))
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         self.send_response(code)
@@ -361,6 +372,13 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 return self._json(404, {"error": "pagina non trovata"})
             return self._send(200, body, "text/html; charset=utf-8")
+        asset = STATIC.get(path)
+        if asset:
+            try:
+                body = (WEB_DIR / asset[0]).read_bytes()
+            except OSError:
+                return self._json(404, {"error": "file non trovato"})
+            return self._send(200, body, asset[1])
         return self._json(404, {"error": "non trovato"})
 
     def do_POST(self):
