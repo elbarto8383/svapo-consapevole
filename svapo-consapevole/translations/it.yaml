@@ -1,0 +1,20 @@
+configuration:
+  notify_services:
+    name: Dispositivi per le notifiche
+    description: >-
+      Nomi dei servizi notify dei telefoni, ad esempio mobile_app_il_mio_iphone.
+      Li trovi in Strumenti per sviluppatori, Azioni, cercando notify.mobile_app.
+  notify_start:
+    name: Notifica a inizio sessione
+    description: Manda una notifica quando parte una sessione.
+  notify_end:
+    name: Notifica a fine sessione
+    description: Manda una notifica quando la sessione finisce da sola.
+  notify_ready:
+    name: Notifica a fine pausa
+    description: Manda una notifica quando è il momento di una nuova sigaretta.
+  interruption_level:
+    name: Livello di interruzione (iPhone)
+    description: >-
+      Con time-sensitive la notifica arriva anche con una Modalità Focus attiva.
+      Con active segue le regole normali.

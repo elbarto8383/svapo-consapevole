@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:,">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px)}[hidden]{display:none!important}</style>
+<title>Svapo Consapevole</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: una colonna sinistra-allineata, la sigaretta che si consuma è il centro visivo; tab in basso per Sessione, Giorni, Regole. */
+:root {
+  --bg: #EDEFEF;
+  --surface: #F7F8F8;
+  --ink: #171B1E;
+  --muted: #5B6468;
+  --line: #D3D8DA;
+  --paper: #FFFFFF;
+  --filter: #C99B62;
+  --filter-band: #A9793F;
+  --ash: #9BA2A6;
+  --ember: #E4511A;
+  --btn-bg: #171B1E;
+  --btn-fg: #F4F6F6;
+  --font-display: 'Big Shoulders Display', 'Arial Narrow', Impact, sans-serif;
+  --font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111416;
+    --surface: #1A1E21;
+    --ink: #E8ECEC;
+    --muted: #9AA3A8;
+    --line: #2B3236;
+    --paper: #DDE1E1;
+    --filter: #B98A55;
+    --filter-band: #8F6535;
+    --ash: #6F777C;
+    --ember: #FF6B2E;
+    --btn-bg: #E8ECEC;
+    --btn-fg: #111416;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111416;
+  --surface: #1A1E21;
+  --ink: #E8ECEC;
+  --muted: #9AA3A8;
+  --line: #2B3236;
+  --paper: #DDE1E1;
+  --filter: #B98A55;
+  --filter-band: #8F6535;
+  --ash: #6F777C;
+  --ember: #FF6B2E;
+  --btn-bg: #E8ECEC;
+  --btn-fg: #111416;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.45 var(--font-body);
+  -webkit-text-size-adjust: 100%;
+}
+button, input { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.app { max-width: 460px; margin: 0 auto; padding-inline: 20px; padding-block: 18px 110px; }
+.top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 20px; }
+.brand { font: 800 19px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.12em; }
+.date { font: 400 12px var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* Sessione */
+.phase { font: 500 12px var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em; }
+.clock {
+  font: 800 clamp(88px, 28vw, 132px)/0.86 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  margin: 8px 0 4px;
+}
+.clock.long { font-size: clamp(60px, 19vw, 92px); line-height: 1; }
+body[data-phase="cooldown"] .clock { color: var(--muted); }
+
+.cig { display: block; width: 100%; height: auto; margin: 10px 0 18px; overflow: visible; }
+.paper { fill: var(--paper); stroke: var(--line); stroke-width: 1; }
+.filter { fill: var(--filter); }
+.band { fill: var(--filter-band); }
+.ash { fill: var(--ash); }
+.tip { fill: var(--ember); }
+.glow { transform-box: fill-box; transform-origin: center; opacity: 0.55; transition: transform 0.5s ease, opacity 0.5s ease; }
+.puffing .glow { transform: scale(2); opacity: 1; }
+
+.cue { font: 700 34px/1.05 var(--font-display); text-transform: uppercase; letter-spacing: 0.02em; min-height: 36px; }
+.cue.on { color: var(--ember); }
+.sub { font: 400 13px var(--font-mono); color: var(--muted); margin-top: 6px; min-height: 20px; }
+.pips { display: flex; flex-wrap: wrap; gap: 7px; margin: 16px 0 24px; min-height: 12px; }
+.pip { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.pip.done { background: var(--ink); border-color: var(--ink); }
+.pip.now { background: var(--ember); border-color: var(--ember); }
+
+.btn {
+  display: block; width: 100%; padding: 17px 18px; border-radius: 10px;
+  font: 600 17px/1.2 var(--font-body); cursor: pointer;
+  border: 1.5px solid transparent; background: transparent;
+}
+.btn:active { transform: scale(0.985); }
+.btn.primary { background: var(--btn-bg); color: var(--btn-fg); }
+.btn.secondary { color: var(--ink); border-color: var(--ink); }
+.btn.ghost { color: var(--muted); border-color: var(--line); }
+.btn.armed { color: var(--ink); border-color: var(--ember); }
+.note { font-size: 13px; color: var(--muted); margin: 12px 0 0; }
+
+.today {
+  display: flex; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap;
+  margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--line);
+  font: 400 13px var(--font-mono); color: var(--muted);
+}
+.today b { color: var(--ink); font-weight: 500; }
+.today .over { text-decoration: underline; text-decoration-color: var(--ember); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+
+/* Giorni */
+.h2 { font: 800 22px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 14px; }
+.sample { font: 400 12px/1.5 var(--font-mono); color: var(--muted); border: 1px dashed var(--muted); padding: 8px 10px; margin: 0 0 16px; }
+.summary { display: grid; grid-template-columns: repeat(3, 1fr); border-block: 1px solid var(--line); margin-bottom: 22px; }
+.sum { padding: 14px 0 14px 12px; border-left: 1px solid var(--line); min-width: 0; }
+.sum:first-child { border-left: 0; padding-left: 0; }
+.sum .n { font: 800 40px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.sum .l { font: 400 11px/1.3 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; }
+.chart { display: block; width: 100%; height: auto; }
+.chart text { font-family: var(--font-mono); font-size: 10px; fill: var(--muted); }
+.chart .val { fill: var(--ink); font-size: 11px; font-weight: 500; }
+.chart .today-lbl { fill: var(--ink); font-weight: 600; }
+.chart .axis { stroke: var(--line); stroke-width: 1; }
+.chart .goal { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.bar-g { fill: var(--ink); }
+.bar-e { fill: var(--ember); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 400 12px var(--font-mono); color: var(--muted); margin: 10px 0 0; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
+.legend .l-g { background: var(--ink); }
+.legend .l-e { background: var(--ember); }
+.legend .l-goal { background: none; border-top: 1.5px dashed var(--muted); height: 0; vertical-align: 3px; }
+.recent { list-style: none; margin: 26px 0 0; padding: 0; }
+.recent li { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.recent .when { font-family: var(--font-mono); font-size: 13px; }
+.recent .meta { color: var(--muted); font-family: var(--font-mono); font-size: 12px; text-align: right; }
+.empty { color: var(--muted); font-size: 14px; margin: 26px 0 0; }
+
+/* Regole */
+.row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 16px; padding: 16px 0; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; padding-top: 4px; }
+.row-main { min-width: 0; flex: 1 1 180px; }
+.row label, .row .lab { display: block; font-weight: 600; }
+.hint { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.stepper { display: flex; align-items: center; gap: 8px; flex: none; }
+.step { width: 40px; height: 40px; border: 1.5px solid var(--line); background: transparent; border-radius: 10px; font-size: 20px; line-height: 1; cursor: pointer; }
+.step:active { transform: scale(0.94); }
+output { font: 500 18px var(--font-mono); min-width: 2.2ch; text-align: right; font-variant-numeric: tabular-nums; }
+.unit { font: 400 12px var(--font-mono); color: var(--muted); min-width: 3.4ch; }
+.switch {
+  -webkit-appearance: none; appearance: none; margin: 0; border: 0; flex: none; cursor: pointer;
+  width: 46px; height: 28px; border-radius: 14px; background: var(--line); position: relative; transition: background 0.2s;
+}
+.switch::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--paper); transition: transform 0.2s;
+}
+.switch:checked { background: var(--ink); }
+.switch:checked::after { transform: translateX(18px); background: var(--bg); }
+.mini { margin-top: 8px; padding: 8px 12px; border: 1.5px solid var(--line); background: transparent; border-radius: 8px; font: 500 13px var(--font-body); cursor: pointer; }
+.row > .mini { margin-top: 0; }
+.mini.danger { border-color: var(--ember); }
+
+/* Tab */
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.tabs-in { max-width: 460px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); }
+.tab { position: relative; background: none; border: 0; color: var(--muted); padding: 15px 8px 13px; font: 500 12px var(--font-mono); text-transform: uppercase; letter-spacing: 0.12em; cursor: pointer; }
+.tab[aria-selected="true"] { color: var(--ink); font-weight: 500; }
+.tab[aria-selected="true"]::before { content: ''; position: absolute; top: -1px; left: 22%; right: 22%; height: 3px; background: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .glow, .switch, .switch::after { transition: none; }
+  .btn:active, .step:active { transform: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">Svapo Consapevole</div>
+    <div class="date" id="dateLabel"></div>
+  </header>
+
+  <main>
+    <section id="view-session" role="tabpanel" aria-label="Sessione">
+      <div class="phase" id="phaseLabel">Pronta</div>
+      <div class="clock" id="clock">6:00</div>
+
+      <svg class="cig" id="cig" viewBox="0 0 350 64" role="img" aria-label="Sigaretta che si consuma durante la sessione">
+        <defs>
+          <radialGradient id="emberGrad">
+            <stop offset="0" style="stop-color:var(--ember);stop-opacity:1"/>
+            <stop offset="1" style="stop-color:var(--ember);stop-opacity:0"/>
+          </radialGradient>
+        </defs>
+        <rect id="paper" class="paper" x="30" y="22" width="232" height="20" rx="1.5"/>
+        <rect class="filter" x="262" y="22" width="74" height="20" rx="3"/>
+        <rect class="band" x="262" y="22" width="5" height="20"/>
+        <rect id="ash" class="ash" x="30" y="23" width="0" height="18" rx="2"/>
+        <g id="emberG">
+          <circle id="glow" class="glow" cx="30" cy="32" r="13" fill="url(#emberGrad)"/>
+          <rect id="tip" class="tip" x="28" y="22" width="3" height="20"/>
+        </g>
+      </svg>
+
+      <div class="cue" id="cue" aria-live="polite"></div>
+      <div class="sub" id="sub"></div>
+      <div class="pips" id="pips" aria-hidden="true"></div>
+
+      <button type="button" id="mainBtn" class="btn primary">Inizia sessione</button>
+      <p class="note" id="note" hidden></p>
+
+      <div class="today">
+        <span id="todayCount"></span>
+        <span id="todayGap"></span>
+      </div>
+    </section>
+
+    <section id="view-days" role="tabpanel" aria-label="Giorni" hidden>
+      <h2 class="h2">Ultimi 7 giorni</h2>
+      <div id="daysBody"></div>
+    </section>
+
+    <section id="view-rules" role="tabpanel" aria-label="Regole" hidden>
+      <h2 class="h2">Le tue regole</h2>
+      <div id="rulesBody"></div>
+    </section>
+  </main>
+</div>
+
+<nav class="tabs" aria-label="Sezioni">
+  <div class="tabs-in" role="tablist">
+    <button type="button" class="tab" role="tab" id="tab-session" data-tab="session" aria-selected="true">Sessione</button>
+    <button type="button" class="tab" role="tab" id="tab-days" data-tab="days" aria-selected="false">Giorni</button>
+    <button type="button" class="tab" role="tab" id="tab-rules" data-tab="rules" aria-selected="false">Regole</button>
+  </div>
+</nav>
+
+<script>
+(function () {
+  'use strict';
+
+  var KEY = 'svapo-consapevole-v1';
+  var DEF = { sessionMin: 6, puffSec: 35, cooldownMin: 45, goal: 8, gradual: false, gradualStep: 5, gradualStart: null, vibrate: true, sound: true };
+  var store = { settings: Object.assign({}, DEF), log: [], run: null };
+  var $ = function (id) { return document.getElementById(id); };
+  var remote = false, skew = 0, lastSync = 0;
+  var cueState = { start: 0, idx: -1 }, endCued = 0, readyCued = 0;
+  function nowMs() { return Date.now() + skew; }
+
+  /* ---------- persistenza ---------- */
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return;
+      var d = JSON.parse(raw);
+      if (d && typeof d === 'object') {
+        if (d.settings) store.settings = Object.assign({}, DEF, d.settings);
+        if (Array.isArray(d.log)) store.log = d.log;
+        if (d.run && typeof d.run === 'object') store.run = d.run;
+      }
+    } catch (e) { /* storage non disponibile: la pagina funziona lo stesso */ }
+  }
+  function save() {
+    if (remote) return;
+    try {
+      if (store.log.length > 400) store.log = store.log.slice(-400);
+      localStorage.setItem(KEY, JSON.stringify(store));
+    } catch (e) { /* ignorato */ }
+  }
+
+  /* ---------- server dell'add-on (se c'è) ---------- */
+  function api(path, body) {
+    var opt = { cache: 'no-store' };
+    if (body !== undefined) {
+      opt.method = 'POST';
+      opt.headers = { 'Content-Type': 'application/json' };
+      opt.body = JSON.stringify(body);
+    }
+    return fetch('api/' + path, opt).then(function (r) {
+      if (!r.ok) throw new Error('http ' + r.status);
+      return r.json();
+    });
+  }
+  function showNotify(n) {
+    var row = $('row-notify');
+    if (!row) return;
+    var ev = [];
+    if (n.start) ev.push('inizio sessione');
+    if (n.end) ev.push('fine sessione');
+    if (n.ready) ev.push('fine pausa');
+    row.hidden = false;
+    $('hint-notify').textContent = n.services > 0
+      ? 'Su ' + n.services + (n.services === 1 ? ' dispositivo' : ' dispositivi') + ': ' + (ev.join(', ') || 'nessun evento attivo') + '.'
+      : 'Nessun dispositivo configurato. Inserisci il servizio notify nelle opzioni dell’add-on.';
+  }
+  function adopt(d) {
+    if (!d || !d.settings) return;
+    skew = d.now - Date.now();
+    store.settings = Object.assign({}, DEF, d.settings);
+    store.log = d.log || [];
+    store.run = d.run || null;
+    if (d.notify) showNotify(d.notify);
+    if (store.run && store.run.phase === 'session') lockScreen(); else unlockScreen();
+    update(); renderStats(); syncRules();
+  }
+  function sync() { lastSync = Date.now(); return api('state').then(adopt).catch(function () {}); }
+  function maybeSync() { if (Date.now() - lastSync > 1500) sync(); }
+  function command(path, body) {
+    lastSync = Date.now();
+    return api(path, body || {}).then(adopt).catch(function () {});
+  }
+
+  /* ---------- utilità ---------- */
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function fmt(ms) {
+    var s = Math.max(0, Math.ceil(ms / 1000));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return h > 0 ? h + ':' + pad(m) + ':' + pad(ss) : m + ':' + pad(ss);
+  }
+  function fmtMin(m) {
+    m = Math.round(m);
+    if (m >= 60) { var r = m % 60; return Math.floor(m / 60) + ' h' + (r ? ' ' + r + ' min' : ''); }
+    return m + ' min';
+  }
+  function dayKey(ts) { var d = new Date(ts); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+  function hhmm(ts) { return new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); }
+  function fmtWhen(ts) {
+    var k = dayKey(ts);
+    var now = new Date();
+    if (k === dayKey(now.getTime())) return 'oggi ' + hhmm(ts);
+    var y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (k === dayKey(y.getTime())) return 'ieri ' + hhmm(ts);
+    return new Date(ts).toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', '') + ' ' + hhmm(ts);
+  }
+  function effCool() {
+    var s = store.settings, m = s.cooldownMin;
+    if (s.gradual && s.gradualStart) {
+      m += Math.floor((nowMs() - s.gradualStart) / (7 * 864e5)) * s.gradualStep;
+    }
+    return Math.min(m, 600);
+  }
+  function plannedPuffs() {
+    var s = store.settings;
+    return Math.max(1, Math.floor(s.sessionMin * 60 / s.puffSec));
+  }
+  function totalPuffs(r) { return Math.max(1, Math.floor(r.sessionMs / r.puffMs)); }
+
+  /* ---------- segnali: vibrazione, suono, schermo acceso ---------- */
+  var actx = null;
+  function ensureAudio() {
+    try {
+      if (!actx) { var C = window.AudioContext || window.webkitAudioContext; if (C) actx = new C(); }
+      if (actx && actx.state === 'suspended') actx.resume();
+    } catch (e) { /* ignorato */ }
+  }
+  function beep(freq, dur, delay, vol) {
+    if (!actx || !store.settings.sound) return;
+    try {
+      var t = actx.currentTime + (delay || 0), o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol || 0.14, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t); o.stop(t + dur + 0.03);
+    } catch (e) { /* ignorato */ }
+  }
+  function buzz(p) {
+    try { return typeof navigator.vibrate === 'function' ? navigator.vibrate(p) : false; } catch (e) { return false; }
+  }
+  function puffCue() { if (store.settings.vibrate) buzz([180]); beep(660, 0.2); }
+  function endCue() { if (store.settings.vibrate) buzz([120, 80, 120, 80, 320]); beep(523, 0.2); beep(392, 0.4, 0.26); }
+  function readyCue() { if (store.settings.vibrate) buzz([100, 60, 100]); beep(784, 0.16); }
+
+  var wl = null;
+  function lockScreen() {
+    try {
+      if ('wakeLock' in navigator && !wl) {
+        navigator.wakeLock.request('screen').then(function (l) {
+          wl = l; wl.addEventListener('release', function () { wl = null; });
+        }).catch(function () {});
+      }
+    } catch (e) { /* ignorato */ }
+  }
+  function unlockScreen() { try { if (wl) { wl.release(); wl = null; } } catch (e) { /* ignorato */ } }
+
+  /* ---------- sessione ---------- */
+  function startSession(early) {
+    ensureAudio();
+    if (remote) { command('start', { early: !!early }); return; }
+    var s = store.settings;
+    store.run = { phase: 'session', start: Date.now(), early: !!early, sessionMs: s.sessionMin * 60000, puffMs: s.puffSec * 1000, lastPuff: -1 };
+    save(); lockScreen(); tick();
+  }
+  function finishSession(stopped, quiet) {
+    var r = store.run;
+    if (!r || r.phase !== 'session') return;
+    if (remote) { command('stop'); return; }
+    var now = Date.now();
+    var dur = Math.min(now - r.start, r.sessionMs);
+    store.log.push({ t: r.start, d: Math.round(dur / 1000), k: r.early ? 'early' : (stopped ? 'stopped' : 'ok') });
+    store.run = { phase: 'cooldown', until: now + effCool() * 60000 };
+    unlockScreen(); save();
+    if (!stopped && !quiet) endCue();
+    update(); renderStats();
+  }
+
+  function tick() {
+    var r = store.run, now = nowMs();
+    if (remote && Date.now() - lastSync > 15000) sync();
+    if (r && r.phase === 'session') {
+      var el = now - r.start;
+      if (el >= r.sessionMs) {
+        if (remote) {
+          if (endCued !== r.start) { endCued = r.start; if (el - r.sessionMs < 6000) endCue(); }
+          maybeSync(); update(); return;
+        }
+        finishSession(false, el - r.sessionMs > 6000); return;
+      }
+      var total = totalPuffs(r), idx = Math.min(total - 1, Math.floor(el / r.puffMs));
+      if (cueState.start !== r.start) cueState = { start: r.start, idx: -1 };
+      if (idx > cueState.idx) {
+        cueState.idx = idx;
+        if (el - idx * r.puffMs < 3000) puffCue();
+      }
+    } else if (r && r.phase === 'cooldown' && now >= r.until) {
+      if (remote) {
+        if (readyCued !== r.until) { readyCued = r.until; if (now - r.until < 6000) readyCue(); }
+        maybeSync(); update(); return;
+      }
+      store.run = null; save();
+      if (now - r.until < 6000) readyCue();
+    }
+    update();
+  }
+
+  /* ---------- schermata sessione ---------- */
+  var el = {
+    phase: $('phaseLabel'), clock: $('clock'), cue: $('cue'), sub: $('sub'), pips: $('pips'),
+    btn: $('mainBtn'), note: $('note'), tCount: $('todayCount'), tGap: $('todayGap'),
+    cig: $('cig'), paper: $('paper'), ash: $('ash'), glow: $('glow'), tip: $('tip'), emberG: $('emberG'), date: $('dateLabel')
+  };
+  var pipN = -1, armed = false, armTimer = null;
+
+  function ensurePips(n) {
+    if (n === pipN) return;
+    pipN = n; el.pips.innerHTML = '';
+    for (var i = 0; i < n; i++) { var s = document.createElement('span'); s.className = 'pip'; el.pips.appendChild(s); }
+  }
+  function setPips(doneUpTo, nowIdx) {
+    var k = el.pips.children;
+    for (var i = 0; i < k.length; i++) k[i].className = 'pip' + (i < doneUpTo ? ' done' : '') + (i === nowIdx ? ' now' : '');
+  }
+  function setCig(p, burning, puffing) {
+    var X0 = 30, X1 = 262, bx = X0 + p * (X1 - X0);
+    el.paper.setAttribute('x', bx.toFixed(2));
+    el.paper.setAttribute('width', Math.max(0, X1 - bx).toFixed(2));
+    var ashLen = p <= 0 ? 0 : Math.min(24, 3 + p * 40);
+    var ax = Math.max(4, bx - ashLen);
+    el.ash.setAttribute('x', ax.toFixed(2));
+    el.ash.setAttribute('width', Math.max(0, bx - ax).toFixed(2));
+    el.glow.setAttribute('cx', bx.toFixed(2));
+    el.tip.setAttribute('x', (bx - 2).toFixed(2));
+    el.emberG.style.opacity = burning ? '1' : '0';
+    el.cig.classList.toggle('puffing', !!puffing);
+  }
+  function disarm() {
+    armed = false; clearTimeout(armTimer);
+    el.btn.classList.remove('armed');
+    update();
+  }
+
+  function update() {
+    var r = store.run, now = nowMs(), s = store.settings;
+    var phase = r ? r.phase : 'idle';
+    document.body.dataset.phase = phase;
+    el.date.textContent = new Date().toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' }).replace('.', '');
+
+    var label, cls, note = '';
+    if (phase === 'session') {
+      var e = now - r.start, total = totalPuffs(r), idx = Math.min(total - 1, Math.floor(e / r.puffMs));
+      var hold = Math.min(4000, r.puffMs / 2), puffing = (e - idx * r.puffMs) < hold;
+      el.phase.textContent = r.early ? 'Sessione · fuori programma' : 'Sessione';
+      el.clock.textContent = fmt(r.sessionMs - e);
+      el.cue.textContent = puffing ? 'Tira piano' : 'Respira';
+      el.cue.classList.toggle('on', puffing);
+      var nextIn = idx + 1 < total ? (idx + 1) * r.puffMs - e : null;
+      el.sub.textContent = 'tiro ' + (idx + 1) + ' / ' + total + (nextIn !== null ? ' · prossimo tra ' + fmt(nextIn) : ' · ultimo tiro');
+      ensurePips(total);
+      setPips(puffing ? idx : idx + 1, puffing ? idx : -1);
+      setCig(Math.min(1, e / r.sessionMs), true, puffing);
+      label = 'Termina qui'; cls = 'btn secondary';
+      note = 'Tieni questa schermata aperta: a schermo bloccato i segnali si fermano.';
+    } else if (phase === 'cooldown') {
+      var left = r.until - now;
+      el.phase.textContent = 'Pausa';
+      el.clock.textContent = fmt(left);
+      el.cue.textContent = 'Aspetta';
+      el.cue.classList.remove('on');
+      el.sub.textContent = 'puoi riprendere alle ' + hhmm(r.until);
+      ensurePips(0);
+      setCig(1, false, false);
+      label = 'Ho ceduto, inizio ora'; cls = 'btn ghost';
+      note = 'Se svapi prima del tempo, segnalalo: parte comunque una sessione guidata e la vedi nelle statistiche.';
+    } else {
+      el.phase.textContent = 'Pronta';
+      el.clock.textContent = fmt(s.sessionMin * 60000);
+      el.cue.textContent = 'Quando vuoi';
+      el.cue.classList.remove('on');
+      el.sub.textContent = plannedPuffs() + ' tiri · uno ogni ' + s.puffSec + ' s';
+      ensurePips(plannedPuffs());
+      setPips(0, -1);
+      setCig(0, false, false);
+      label = 'Inizia sessione'; cls = 'btn primary';
+    }
+    el.clock.classList.toggle('long', el.clock.textContent.length > 5);
+
+    if (!armed) { el.btn.textContent = label; el.btn.className = cls; }
+    el.note.textContent = note;
+    el.note.hidden = !note;
+
+    var today = store.log.filter(function (x) { return dayKey(x.t) === dayKey(now); }).sort(function (a, b) { return a.t - b.t; });
+    var n = today.length;
+    el.tCount.innerHTML = 'Oggi <b class="' + (n > s.goal ? 'over' : '') + '">' + n + ' / ' + s.goal + '</b>';
+    if (n >= 2) {
+      var gaps = 0;
+      for (var i = 1; i < n; i++) gaps += today[i].t - today[i - 1].t;
+      el.tGap.innerHTML = 'distanza media <b>' + fmtMin(gaps / (n - 1) / 60000) + '</b>';
+    } else if (n === 1) {
+      el.tGap.innerHTML = 'prima alle <b>' + hhmm(today[0].t) + '</b>';
+    } else {
+      el.tGap.textContent = 'nessuna sessione';
+    }
+  }
+
+  el.btn.addEventListener('click', function () {
+    var r = store.run, ph = r ? r.phase : 'idle';
+    if (ph === 'idle') { startSession(false); return; }
+    if (!armed) {
+      armed = true;
+      el.btn.classList.add('armed');
+      el.btn.textContent = ph === 'session' ? 'Tocca ancora per terminare' : 'Tocca ancora per confermare';
+      armTimer = setTimeout(disarm, 4000);
+      return;
+    }
+    armed = false; clearTimeout(armTimer);
+    el.btn.classList.remove('armed');
+    if (ph === 'session') finishSession(true, true); else startSession(true);
+  });
+
+  /* ---------- statistiche ---------- */
+  function countsByDay(n) {
+    var out = [], now = new Date(), idx = {};
+    for (var i = n - 1; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      out.push({ key: dayKey(d.getTime()), label: d.toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', ''), g: 0, e: 0, today: i === 0 });
+    }
+    out.forEach(function (o, i) { idx[o.key] = i; });
+    store.log.forEach(function (x) {
+      var k = dayKey(x.t);
+      if (k in idx) { if (x.k === 'early') out[idx[k]].e++; else out[idx[k]].g++; }
+    });
+    return out;
+  }
+  function sampleDays() {
+    var g = [8, 7, 8, 6, 7, 6, 4], e = [2, 1, 1, 1, 0, 1, 0];
+    return countsByDay(7).map(function (d, i) { d.g = g[i]; d.e = e[i]; return d; });
+  }
+  function chartSVG(days, goal) {
+    var W = 320, base = 150, H = 128;
+    var totals = days.map(function (d) { return d.g + d.e; });
+    var max = Math.max.apply(null, totals.concat([goal, 1])) * 1.12;
+    var y = function (v) { return base - v / max * H; };
+    var slot = W / days.length, bw = 24;
+    var s = '<svg class="chart" viewBox="0 0 ' + W + ' 176" role="img" aria-label="Sessioni al giorno negli ultimi 7 giorni">';
+    s += '<line class="axis" x1="0" x2="' + W + '" y1="' + (base + 0.5) + '" y2="' + (base + 0.5) + '"/>';
+    days.forEach(function (d, i) {
+      var x = i * slot + (slot - bw) / 2, gh = d.g / max * H, eh = d.e / max * H, t = d.g + d.e, cx = (x + bw / 2).toFixed(1);
+      if (d.g > 0) s += '<rect class="bar-g" x="' + x.toFixed(1) + '" y="' + (base - gh).toFixed(1) + '" width="' + bw + '" height="' + gh.toFixed(1) + '"/>';
+      if (d.e > 0) s += '<rect class="bar-e" x="' + x.toFixed(1) + '" y="' + (base - gh - eh).toFixed(1) + '" width="' + bw + '" height="' + eh.toFixed(1) + '"/>';
+      s += '<text class="val" x="' + cx + '" y="' + (base - gh - eh - 6).toFixed(1) + '" text-anchor="middle">' + t + '</text>';
+      s += '<text class="' + (d.today ? 'today-lbl' : '') + '" x="' + cx + '" y="168" text-anchor="middle">' + d.label + '</text>';
+    });
+    var gy = y(goal).toFixed(1);
+    s += '<line class="goal" x1="0" x2="' + W + '" y1="' + gy + '" y2="' + gy + '"/>';
+    return s + '</svg>';
+  }
+  var KIND = { ok: 'guidata', stopped: 'interrotta', early: 'fuori programma' };
+  function renderStats() {
+    var real = store.log.length > 0, goal = store.settings.goal;
+    var days = real ? countsByDay(7) : sampleDays();
+    var totals = days.map(function (d) { return d.g + d.e; });
+    var sum = totals.reduce(function (a, b) { return a + b; }, 0);
+    var early = days.reduce(function (a, d) { return a + d.e; }, 0);
+    var avg = (sum / days.length).toFixed(1).replace('.', ',');
+    var html = '';
+    if (!real) html += '<p class="sample">Dati di esempio. Le tue statistiche partono dalla prima sessione.</p>';
+    html += '<div class="summary">' +
+      '<div class="sum"><div class="n">' + totals[totals.length - 1] + '</div><div class="l">oggi</div></div>' +
+      '<div class="sum"><div class="n">' + avg + '</div><div class="l">media al giorno</div></div>' +
+      '<div class="sum"><div class="n">' + early + '</div><div class="l">fuori programma</div></div>' +
+      '</div>';
+    html += chartSVG(days, goal);
+    html += '<div class="legend"><span><i class="l-g"></i>guidate</span><span><i class="l-e"></i>fuori programma</span><span><i class="l-goal"></i>obiettivo ' + goal + '</span></div>';
+    if (real) {
+      html += '<ul class="recent">' + store.log.slice(-6).reverse().map(function (x) {
+        return '<li><span class="when">' + fmtWhen(x.t) + '</span><span class="meta">' + KIND[x.k] + ' · ' + fmt(x.d * 1000) + '</span></li>';
+      }).join('') + '</ul>';
+    } else {
+      html += '<p class="empty">Le sessioni che fai compariranno qui, con orario e durata.</p>';
+    }
+    $('daysBody').innerHTML = html;
+  }
+
+  /* ---------- regole ---------- */
+  var STEPPERS = [
+    { key: 'sessionMin', label: 'Durata della sessione', unit: 'min', min: 3, max: 15, step: 1 },
+    { key: 'puffSec', label: 'Un tiro ogni', unit: 'sec', min: 15, max: 90, step: 5 },
+    { key: 'cooldownMin', label: 'Pausa tra sessioni', unit: 'min', min: 10, max: 180, step: 5 },
+    { key: 'goal', label: 'Obiettivo giornaliero', unit: 'sess.', min: 1, max: 30, step: 1 },
+    { key: 'gradualStep', label: 'Aggiungi ogni settimana', unit: 'min', min: 1, max: 30, step: 1 }
+  ];
+  function def(k) { return STEPPERS.filter(function (d) { return d.key === k; })[0]; }
+  function stepperRow(d) {
+    return '<div class="row" id="row-' + d.key + '"><div class="row-main"><label for="v-' + d.key + '">' + d.label + '</label><div class="hint" id="hint-' + d.key + '"></div></div>' +
+      '<div class="stepper"><button type="button" class="step" data-key="' + d.key + '" data-dir="-1" aria-label="Diminuisci: ' + d.label + '">−</button>' +
+      '<output id="v-' + d.key + '"></output><span class="unit">' + d.unit + '</span>' +
+      '<button type="button" class="step" data-key="' + d.key + '" data-dir="1" aria-label="Aumenta: ' + d.label + '">+</button></div></div>';
+  }
+  function switchRow(id, label, extra) {
+    return '<div class="row"><div class="row-main"><label for="sw-' + id + '">' + label + '</label><div class="hint" id="hint-' + id + '"></div>' + (extra || '') + '</div>' +
+      '<input type="checkbox" role="switch" class="switch" id="sw-' + id + '"></div>';
+  }
+  function buildRules() {
+    $('rulesBody').innerHTML =
+      stepperRow(def('sessionMin')) + stepperRow(def('puffSec')) + stepperRow(def('cooldownMin')) + stepperRow(def('goal')) +
+      switchRow('gradual', 'Riduzione graduale') + stepperRow(def('gradualStep')) +
+      switchRow('vibrate', 'Vibrazione', '<button type="button" class="mini" id="test-vib">Prova</button><div class="hint" id="testMsg" aria-live="polite"></div>') +
+      switchRow('sound', 'Suono', '<button type="button" class="mini" id="test-snd">Prova</button>') +
+      '<div class="row" id="row-notify" hidden><div class="row-main"><div class="lab">Notifiche sul telefono</div><div class="hint" id="hint-notify"></div><button type="button" class="mini" id="test-notify">Prova</button></div></div>' +
+      '<div class="row"><div class="row-main"><div class="lab">Storico</div><div class="hint">Cancella sessioni e statistiche salvate su questo dispositivo.</div></div><button type="button" class="mini danger" id="reset">Cancella</button></div>';
+  }
+  function syncRules() {
+    var s = store.settings;
+    STEPPERS.forEach(function (d) { $('v-' + d.key).textContent = s[d.key]; });
+    $('hint-sessionMin').textContent = 'Una sigaretta vera dura circa 5-7 minuti.';
+    $('hint-puffSec').textContent = 'Circa ' + plannedPuffs() + ' tiri a sessione.';
+    $('hint-cooldownMin').textContent = 'Adesso: ' + fmtMin(effCool()) + (s.gradual ? ' (con la riduzione)' : '') + '.';
+    $('hint-goal').textContent = 'Il massimo che vuoi concederti in un giorno.';
+    $('hint-gradual').textContent = s.gradual ? 'Attiva. Una nuova settimana allunga la pausa.' : 'Allunga la pausa di qualche minuto ogni settimana.';
+    $('hint-vibrate').textContent = 'Un impulso a ogni tiro.';
+    $('hint-sound').textContent = 'Un breve segnale a ogni tiro.';
+    $('row-gradualStep').hidden = !s.gradual;
+    $('sw-gradual').checked = !!s.gradual;
+    $('sw-vibrate').checked = !!s.vibrate;
+    $('sw-sound').checked = !!s.sound;
+  }
+  var resetArmed = false;
+  $('rulesBody').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.step') : null;
+    if (b) {
+      var d = def(b.dataset.key), s = store.settings;
+      s[d.key] = Math.min(d.max, Math.max(d.min, s[d.key] + d.step * Number(b.dataset.dir)));
+      save();
+      if (remote) { var p = {}; p[d.key] = s[d.key]; command('settings', p); }
+      syncRules(); update();
+      return;
+    }
+    var id = e.target.id;
+    if (id === 'test-vib') {
+      var ok = buzz([200]);
+      $('testMsg').textContent = ok ? 'Segnale inviato. Se non senti nulla, il telefono o l’app non lo consente (su iPhone la vibrazione web non esiste). Usa il suono.' : 'La vibrazione non è disponibile qui. Usa il suono.';
+    } else if (id === 'test-snd') {
+      ensureAudio(); beep(660, 0.2);
+    } else if (id === 'test-notify') {
+      $('hint-notify').textContent = 'Invio in corso...';
+      api('test-notify', {}).then(function (r) {
+        $('hint-notify').textContent = r.sent ? 'Notifica inviata.' : (r.reason || 'Notifica non inviata.');
+      }).catch(function () { $('hint-notify').textContent = 'Notifica non inviata.'; });
+    } else if (id === 'reset') {
+      if (!resetArmed) {
+        resetArmed = true; e.target.textContent = 'Conferma';
+        setTimeout(function () { resetArmed = false; var r = $('reset'); if (r) r.textContent = 'Cancella'; }, 4000);
+        return;
+      }
+      resetArmed = false; e.target.textContent = 'Cancella';
+      store.log = []; save(); if (remote) command('reset'); update(); renderStats();
+    }
+  });
+  $('rulesBody').addEventListener('change', function (e) {
+    var t = e.target, s = store.settings, patch;
+    if (t.id === 'sw-gradual') { s.gradual = t.checked; s.gradualStart = t.checked ? nowMs() : null; patch = { gradual: t.checked }; }
+    else if (t.id === 'sw-vibrate') { s.vibrate = t.checked; patch = { vibrate: t.checked }; }
+    else if (t.id === 'sw-sound') { s.sound = t.checked; if (t.checked) ensureAudio(); patch = { sound: t.checked }; }
+    else return;
+    save();
+    if (remote) command('settings', patch);
+    syncRules(); update();
+  });
+
+  /* ---------- tab ---------- */
+  function showTab(name) {
+    ['session', 'days', 'rules'].forEach(function (n) {
+      $('view-' + n).hidden = n !== name;
+      $('tab-' + n).setAttribute('aria-selected', n === name ? 'true' : 'false');
+    });
+    if (name === 'days') renderStats();
+    if (name === 'rules') syncRules();
+    window.scrollTo(0, 0);
+  }
+  document.querySelector('.tabs').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.tab') : null;
+    if (b) showTab(b.dataset.tab);
+  });
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) {
+      if (store.run && store.run.phase === 'session') lockScreen();
+      if (remote) sync();
+      tick();
+    }
+  });
+
+  /* ---------- avvio ---------- */
+  load();
+  buildRules();
+  syncRules();
+  renderStats();
+  tick();
+  if (store.run && store.run.phase === 'session') lockScreen();
+  setInterval(tick, 250);
+  api('state').then(function (d) { remote = true; adopt(d); }).catch(function () { /* modalità locale */ });
+})();
+</script>
+</body>
+</html>
